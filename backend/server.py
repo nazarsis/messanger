@@ -263,6 +263,10 @@ async def create_chat(
     result = await db.chats.insert_one(chat_doc)
     chat_doc["id"] = str(result.inserted_id)
     
+    # Remove any ObjectId fields that might cause serialization issues
+    if "_id" in chat_doc:
+        del chat_doc["_id"]
+    
     return chat_doc
 
 @api_router.get("/chats/{chat_id}/messages")
