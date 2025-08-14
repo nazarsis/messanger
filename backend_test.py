@@ -1014,6 +1014,48 @@ class MessengerAPITester:
         except Exception as e:
             print(f"❌ Complete user flow test failed with exception: {e}")
             return False
+
+    async def test_mongodb_persistence(self) -> bool:
+        """Test MongoDB data persistence by retrieving stored data"""
+        print("\n🗄️ Testing MongoDB Data Persistence...")
+        
+        if not self.test_tokens or not self.test_chats:
+            print("❌ No data available for persistence testing")
+            return False
+        
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.test_tokens[0]}",
+                "Content-Type": "application/json"
+            }
+            
+            chat_id = self.test_chats[0]['id']
+            
+            # Retrieve messages to verify persistence
+            async with self.session.get(
+                f"{BASE_URL}/chats/{chat_id}/messages",
+                headers=headers
+            ) as response:
+                
+                if response.status == 200:
+                    messages = await response.json()
+                    print(f"✅ MongoDB persistence verified")
+                    print(f"   Retrieved {len(messages)} persisted messages")
+                    
+                    if messages:
+                        latest_message = messages[-1]
+                        print(f"   Latest message: '{latest_message.get('content', 'N/A')}'")
+                        print(f"   Timestamp: {latest_message.get('timestamp', 'N/A')}")
+                    
+                    return True
+                else:
+                    error_text = await response.text()
+                    print(f"❌ MongoDB persistence test failed: {response.status} - {error_text}")
+                    return False
+                    
+        except Exception as e:
+            print(f"❌ MongoDB persistence test failed with exception: {e}")
+            return False
         """Test MongoDB data persistence by retrieving stored data"""
         print("\n🗄️ Testing MongoDB Data Persistence...")
         
