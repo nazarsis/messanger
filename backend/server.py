@@ -287,6 +287,7 @@ async def get_chat_messages(
     
     for message in messages:
         message["id"] = str(message["_id"])
+        del message["_id"]  # Remove ObjectId field
     
     return list(reversed(messages))  # Return in chronological order
 
