@@ -32,6 +32,10 @@ interface Message {
   message_type: string;
   timestamp: string;
   status: string;
+  reply_to?: string;
+  file_data?: string;
+  file_name?: string;
+  file_size?: number;
 }
 
 interface Chat {
@@ -39,10 +43,12 @@ interface Chat {
   participants: string[];
   chat_type: string;
   name?: string;
+  description?: string;
   participants_info?: Array<{
     id: string;
     nickname: string;
     display_name: string;
+    is_online?: boolean;
   }>;
 }
 
@@ -53,6 +59,8 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [chat, setChat] = useState<Chat | null>(null);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [showAttachmentOptions, setShowAttachmentOptions] = useState(false);
   const router = useRouter();
   const { user } = useAuth();
   const flatListRef = useRef<FlatList>(null);
