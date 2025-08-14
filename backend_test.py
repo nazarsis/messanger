@@ -251,8 +251,25 @@ class MessengerAPITester:
         print("\n📤 Testing Message Sending via API...")
         
         if not self.test_chats:
-            print("❌ No chats available for message testing")
-            return False
+            print("⚠️ No chats from creation test, trying to get existing chats...")
+            # Try to get existing chats for testing
+            headers = {
+                "Authorization": f"Bearer {self.test_tokens[0]}",
+                "Content-Type": "application/json"
+            }
+            
+            async with self.session.get(f"{BASE_URL}/chats", headers=headers) as response:
+                if response.status == 200:
+                    existing_chats = await response.json()
+                    if existing_chats:
+                        self.test_chats = existing_chats
+                        print(f"✅ Found {len(existing_chats)} existing chats for testing")
+                    else:
+                        print("❌ No chats available for message testing")
+                        return False
+                else:
+                    print("❌ No chats available for message testing")
+                    return False
         
         try:
             headers = {
