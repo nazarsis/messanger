@@ -15,6 +15,7 @@ from typing import Dict, Any, Optional
 # Configuration
 BASE_URL = "https://messenger-hub-4.preview.emergentagent.com/api"
 SOCKET_URL = "https://messenger-hub-4.preview.emergentagent.com"
+SOCKET_URL_API = "https://messenger-hub-4.preview.emergentagent.com/api"
 
 class MessengerAPITester:
     def __init__(self):
