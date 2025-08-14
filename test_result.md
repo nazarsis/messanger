@@ -124,7 +124,7 @@ backend:
     implemented: true
     working: false
     file: "server.py"
-    stuck_count: 2
+    stuck_count: 3
     priority: "high"
     needs_retesting: false
     status_history:
@@ -137,6 +137,9 @@ backend:
       - working: false
         agent: "testing"
         comment: "❌ COMPREHENSIVE TESTING: Socket.IO server still not accessible after multiple fixes. Tested all possible URLs: base URL (Connection closed), /api (404), /socket.io (404), /api/socket.io (404). Backend server runs correctly with Socket.IO initialized ('Server initialized for aiohttp' in logs), but Kubernetes ingress is not routing Socket.IO traffic properly. This is an infrastructure/ingress configuration issue, not a code issue."
+      - working: false
+        agent: "testing"
+        comment: "❌ UPDATED IMPLEMENTATION TESTED: Main agent updated from Socket.IO to native FastAPI WebSockets. NEW FINDINGS: ✅ REST API messaging endpoint (POST /api/chats/{chat_id}/messages) working perfectly - messages sent and persisted successfully. ✅ WebSocket authentication working (correctly rejects invalid/missing tokens). ❌ WebSocket real-time messaging blocked by HTTP 502 errors - Kubernetes ingress not configured for WebSocket routing. The WebSocket implementation exists and is correct, but external access is blocked by infrastructure."
 
   - task: "REST API Endpoints"
     implemented: true
