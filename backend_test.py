@@ -349,7 +349,7 @@ class MessengerAPITester:
             ws_url = f"{WS_BASE_URL}/ws/chat/{chat_id}?token={token}"
             print(f"   Connecting to WebSocket: {ws_url}")
             
-            websocket = await websockets.connect(ws_url, timeout=10)
+            websocket = await websockets.connect(ws_url)
             self.websocket_connections.append(websocket)
             
             print("✅ WebSocket connection established")
