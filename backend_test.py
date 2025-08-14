@@ -26,8 +26,10 @@ class MessengerAPITester:
         self.test_users = []
         self.test_tokens = []
         self.test_chats = []
+        self.test_group_chats = []
         self.received_messages = []
         self.websocket_connections = []
+        self.uploaded_files = []
         
     async def setup(self):
         """Initialize HTTP session"""
