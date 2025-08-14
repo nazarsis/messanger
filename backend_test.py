@@ -343,6 +343,7 @@ class MessengerAPITester:
         
         chat_id = self.test_chats[0]['id']
         token = self.test_tokens[0]
+        websocket = None
         
         try:
             # Connect to WebSocket with valid token
@@ -393,6 +394,11 @@ class MessengerAPITester:
                 
         except Exception as e:
             print(f"❌ WebSocket messaging test failed: {e}")
+            # Check if it's a 502 error (infrastructure issue)
+            if "502" in str(e):
+                print("   This appears to be a Kubernetes ingress configuration issue for WebSocket routing")
+                print("   The WebSocket endpoint exists but is not accessible externally")
+                return False
             return False
         finally:
             # Close WebSocket connection
