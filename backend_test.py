@@ -180,13 +180,10 @@ class MessengerAPITester:
             }
             
             # Create chat between first and second user
-            chat_data = {
-                "participant_id": self.test_users[1]['id']
-            }
+            participant_id = self.test_users[1]['id']
             
             async with self.session.post(
-                f"{BASE_URL}/chats",
-                json=chat_data,
+                f"{BASE_URL}/chats?participant_id={participant_id}",
                 headers=headers
             ) as response:
                 
