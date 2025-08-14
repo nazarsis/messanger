@@ -307,7 +307,7 @@ class MessengerAPITester:
             ws_url = f"{WS_BASE_URL}/ws/chat/{chat_id}"
             
             try:
-                websocket = await websockets.connect(ws_url, timeout=5)
+                websocket = await websockets.connect(ws_url)
                 await websocket.close()
                 print("❌ WebSocket connection should have failed without token")
                 return False
@@ -322,7 +322,7 @@ class MessengerAPITester:
             ws_url = f"{WS_BASE_URL}/ws/chat/{chat_id}?token=invalid_token"
             
             try:
-                websocket = await websockets.connect(ws_url, timeout=5)
+                websocket = await websockets.connect(ws_url)
                 await websocket.close()
                 print("❌ WebSocket connection should have failed with invalid token")
                 return False
