@@ -378,7 +378,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Socket.IO app - this should be the final step
+# Mount Socket.IO app at /socket.io path
+socket_asgi = socketio.ASGIApp(sio)
+app.mount("/socket.io", socket_asgi)
+
+# Also create the wrapped app for uvicorn
 socket_app = socketio.ASGIApp(sio, app)
 
 # Configure logging
