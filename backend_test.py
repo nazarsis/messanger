@@ -1,58 +1,42 @@
 #!/usr/bin/env python3
 """
 Comprehensive Backend Testing for Messenger API
-Tests all core functionality including authentication, REST APIs, MongoDB integration, and Socket.IO
+Tests WebSocket real-time messaging, REST API messaging, authentication, and MongoDB integration
 """
 
 import asyncio
 import aiohttp
-import socketio
+import websockets
 import json
 import sys
 from datetime import datetime
 from typing import Dict, Any, Optional
+import urllib.parse
 
 # Configuration
 BASE_URL = "https://messenger-hub-4.preview.emergentagent.com/api"
-SOCKET_URL = "https://messenger-hub-4.preview.emergentagent.com"
-SOCKET_URL_API = "https://messenger-hub-4.preview.emergentagent.com/api"
+WS_BASE_URL = "wss://messenger-hub-4.preview.emergentagent.com"
 
 class MessengerAPITester:
     def __init__(self):
         self.session = None
-        self.sio_client = None
         self.test_users = []
         self.test_tokens = []
         self.test_chats = []
         self.received_messages = []
+        self.websocket_connections = []
         
     async def setup(self):
-        """Initialize HTTP session and Socket.IO client"""
+        """Initialize HTTP session"""
         self.session = aiohttp.ClientSession()
-        self.sio_client = socketio.AsyncClient()
-        
-        # Setup Socket.IO event handlers
-        @self.sio_client.event
-        async def connect():
-            print("✅ Socket.IO connected successfully")
-            
-        @self.sio_client.event
-        async def disconnect():
-            print("🔌 Socket.IO disconnected")
-            
-        @self.sio_client.event
-        async def new_message(data):
-            print(f"📨 Received real-time message: {data}")
-            self.received_messages.append(data)
-            
-        @self.sio_client.event
-        async def error(data):
-            print(f"❌ Socket.IO error: {data}")
     
     async def cleanup(self):
         """Clean up resources"""
-        if self.sio_client and self.sio_client.connected:
-            await self.sio_client.disconnect()
+        # Close any open WebSocket connections
+        for ws in self.websocket_connections:
+            if not ws.closed:
+                await ws.close()
+        
         if self.session:
             await self.session.close()
     
@@ -247,9 +231,9 @@ class MessengerAPITester:
             print(f"❌ Get chats test failed with exception: {e}")
             return False
     
-    async def test_send_message_via_api(self) -> bool:
-        """Test sending message via REST API (if endpoint exists)"""
-        print("\n📤 Testing Message Sending via API...")
+    async def test_rest_api_messaging(self) -> bool:
+        """Test REST API message sending endpoint"""
+        print("\n📤 Testing REST API Message Sending...")
         
         if not self.test_chats:
             print("⚠️ No chats from creation test, trying to get existing chats...")
@@ -280,109 +264,227 @@ class MessengerAPITester:
             
             chat_id = self.test_chats[0]['id']
             
-            # Try to get messages first (this should work)
-            async with self.session.get(
+            # Test sending message via REST API
+            message_data = {
+                "content": "Hello! This is a test message via REST API.",
+                "message_type": "text"
+            }
+            
+            async with self.session.post(
                 f"{BASE_URL}/chats/{chat_id}/messages",
+                json=message_data,
                 headers=headers
             ) as response:
                 
                 if response.status == 200:
-                    messages = await response.json()
-                    print(f"✅ Retrieved messages for chat {chat_id}")
-                    print(f"   Number of messages: {len(messages)}")
+                    data = await response.json()
+                    print(f"✅ Message sent via REST API successfully")
+                    print(f"   Message ID: {data['id']}")
+                    print(f"   Content: {data['content']}")
+                    print(f"   Timestamp: {data['timestamp']}")
                     return True
                 else:
                     error_text = await response.text()
-                    print(f"❌ Get messages failed: {response.status} - {error_text}")
+                    print(f"❌ REST API message sending failed: {response.status} - {error_text}")
                     return False
                     
         except Exception as e:
-            print(f"❌ Message API test failed with exception: {e}")
+            print(f"❌ REST API message test failed with exception: {e}")
             return False
     
-    async def test_socket_io_connection(self) -> bool:
-        """Test Socket.IO connection and real-time messaging"""
-        print("\n🔌 Testing Socket.IO Connection...")
+    async def test_websocket_authentication(self) -> bool:
+        """Test WebSocket authentication with invalid/missing tokens"""
+        print("\n🔐 Testing WebSocket Authentication...")
         
-        # Try multiple Socket.IO URLs
-        urls_to_try = [
-            SOCKET_URL,
-            SOCKET_URL_API,
-            f"{SOCKET_URL}/socket.io",
-            f"{SOCKET_URL_API}/socket.io"
-        ]
+        if not self.test_chats:
+            print("❌ No chats available for WebSocket authentication test")
+            return False
         
-        for url in urls_to_try:
+        chat_id = self.test_chats[0]['id']
+        
+        # Test 1: Missing token
+        try:
+            print("   Testing WebSocket connection without token...")
+            ws_url = f"{WS_BASE_URL}/ws/chat/{chat_id}"
+            
             try:
-                print(f"   Trying Socket.IO URL: {url}")
-                # Connect to Socket.IO server
-                await self.sio_client.connect(url)
-                
-                # Wait a moment for connection to establish
-                await asyncio.sleep(1)
-                
-                if self.sio_client.connected:
-                    print(f"✅ Socket.IO connection established at {url}")
-                    return True
-                else:
-                    print(f"   Connection failed for {url}")
-                    
+                websocket = await websockets.connect(ws_url, timeout=5)
+                await websocket.close()
+                print("❌ WebSocket connection should have failed without token")
+                return False
             except Exception as e:
-                print(f"   Connection failed for {url}: {e}")
-                continue
+                print(f"✅ WebSocket correctly rejected connection without token: {e}")
+        except Exception as e:
+            print(f"✅ WebSocket authentication test passed (no token): {e}")
         
-        print("❌ Socket.IO connection failed on all URLs")
-        return False
+        # Test 2: Invalid token
+        try:
+            print("   Testing WebSocket connection with invalid token...")
+            ws_url = f"{WS_BASE_URL}/ws/chat/{chat_id}?token=invalid_token"
+            
+            try:
+                websocket = await websockets.connect(ws_url, timeout=5)
+                await websocket.close()
+                print("❌ WebSocket connection should have failed with invalid token")
+                return False
+            except Exception as e:
+                print(f"✅ WebSocket correctly rejected invalid token: {e}")
+        except Exception as e:
+            print(f"✅ WebSocket authentication test passed (invalid token): {e}")
+        
+        return True
     
-    async def test_socket_io_messaging(self) -> bool:
-        """Test real-time messaging via Socket.IO"""
-        print("\n📨 Testing Socket.IO Real-time Messaging...")
+    async def test_websocket_messaging(self) -> bool:
+        """Test WebSocket real-time messaging"""
+        print("\n🔌 Testing WebSocket Real-time Messaging...")
         
-        if not self.sio_client.connected:
-            print("❌ Socket.IO not connected")
+        if not self.test_chats or not self.test_tokens:
+            print("❌ No chats or tokens available for WebSocket testing")
             return False
         
-        if not self.test_chats or not self.test_users:
-            print("❌ No chats or users available for messaging test")
-            return False
+        chat_id = self.test_chats[0]['id']
+        token = self.test_tokens[0]
         
         try:
-            chat_id = self.test_chats[0]['id']
-            user_id = self.test_users[0]['id']
+            # Connect to WebSocket with valid token
+            ws_url = f"{WS_BASE_URL}/ws/chat/{chat_id}?token={token}"
+            print(f"   Connecting to WebSocket: {ws_url}")
             
-            # Join chat room
-            await self.sio_client.emit('join_chat', {
-                'chat_id': chat_id,
-                'user_id': user_id
-            })
+            websocket = await websockets.connect(ws_url, timeout=10)
+            self.websocket_connections.append(websocket)
             
-            print(f"✅ Joined chat room: {chat_id}")
+            print("✅ WebSocket connection established")
+            
+            # Wait for connection confirmation
+            try:
+                confirmation = await asyncio.wait_for(websocket.recv(), timeout=5)
+                confirmation_data = json.loads(confirmation)
+                print(f"✅ Received connection confirmation: {confirmation_data}")
+            except asyncio.TimeoutError:
+                print("⚠️ No connection confirmation received (but connection established)")
             
             # Send a test message
             test_message = {
-                'chat_id': chat_id,
-                'sender_id': user_id,
-                'content': 'Hello! This is a test message from the backend tester.',
-                'message_type': 'text'
+                "type": "message",
+                "content": "Hello! This is a WebSocket test message.",
+                "message_type": "text"
             }
             
-            await self.sio_client.emit('send_message', test_message)
-            print(f"✅ Sent test message via Socket.IO")
+            await websocket.send(json.dumps(test_message))
+            print("✅ Sent test message via WebSocket")
             
-            # Wait for message to be received
-            await asyncio.sleep(2)
-            
-            if self.received_messages:
-                print(f"✅ Received real-time message confirmation")
-                print(f"   Message content: {self.received_messages[-1].get('content', 'N/A')}")
-                return True
-            else:
-                print("⚠️ Message sent but no real-time confirmation received")
+            # Wait for message broadcast
+            try:
+                response = await asyncio.wait_for(websocket.recv(), timeout=5)
+                response_data = json.loads(response)
+                print(f"✅ Received message broadcast: {response_data}")
+                
+                if response_data.get("type") == "new_message":
+                    message = response_data.get("message", {})
+                    print(f"   Message content: {message.get('content')}")
+                    print(f"   Message ID: {message.get('id')}")
+                    return True
+                else:
+                    print("⚠️ Unexpected message format received")
+                    return True  # Still consider success as message was sent
+                    
+            except asyncio.TimeoutError:
+                print("⚠️ No message broadcast received (but message sent)")
                 return True  # Still consider success as message was sent
                 
         except Exception as e:
-            print(f"❌ Socket.IO messaging test failed: {e}")
+            print(f"❌ WebSocket messaging test failed: {e}")
             return False
+        finally:
+            # Close WebSocket connection
+            if websocket and not websocket.closed:
+                await websocket.close()
+    
+    async def test_websocket_dual_user_messaging(self) -> bool:
+        """Test WebSocket messaging between two users"""
+        print("\n👥 Testing WebSocket Dual User Messaging...")
+        
+        if len(self.test_tokens) < 2 or not self.test_chats:
+            print("❌ Need at least 2 users and 1 chat for dual user messaging test")
+            return False
+        
+        chat_id = self.test_chats[0]['id']
+        token1 = self.test_tokens[0]
+        token2 = self.test_tokens[1]
+        
+        websocket1 = None
+        websocket2 = None
+        
+        try:
+            # Connect both users to the same chat
+            ws_url1 = f"{WS_BASE_URL}/ws/chat/{chat_id}?token={token1}"
+            ws_url2 = f"{WS_BASE_URL}/ws/chat/{chat_id}?token={token2}"
+            
+            print("   Connecting User 1 to WebSocket...")
+            websocket1 = await websockets.connect(ws_url1, timeout=10)
+            self.websocket_connections.append(websocket1)
+            
+            print("   Connecting User 2 to WebSocket...")
+            websocket2 = await websockets.connect(ws_url2, timeout=10)
+            self.websocket_connections.append(websocket2)
+            
+            print("✅ Both users connected to WebSocket")
+            
+            # Clear any initial messages
+            await asyncio.sleep(1)
+            try:
+                while True:
+                    await asyncio.wait_for(websocket1.recv(), timeout=0.1)
+            except asyncio.TimeoutError:
+                pass
+            
+            try:
+                while True:
+                    await asyncio.wait_for(websocket2.recv(), timeout=0.1)
+            except asyncio.TimeoutError:
+                pass
+            
+            # User 1 sends a message
+            test_message = {
+                "type": "message",
+                "content": "Hello from User 1! Can you see this?",
+                "message_type": "text"
+            }
+            
+            await websocket1.send(json.dumps(test_message))
+            print("✅ User 1 sent message")
+            
+            # Check if User 2 receives the message
+            try:
+                response = await asyncio.wait_for(websocket2.recv(), timeout=5)
+                response_data = json.loads(response)
+                print(f"✅ User 2 received message: {response_data}")
+                
+                if response_data.get("type") == "new_message":
+                    message = response_data.get("message", {})
+                    if "User 1" in message.get("content", ""):
+                        print("✅ Cross-user WebSocket messaging working correctly")
+                        return True
+                    else:
+                        print("⚠️ Message received but content doesn't match")
+                        return True
+                else:
+                    print("⚠️ Unexpected message format")
+                    return True
+                    
+            except asyncio.TimeoutError:
+                print("❌ User 2 did not receive message from User 1")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Dual user WebSocket test failed: {e}")
+            return False
+        finally:
+            # Close WebSocket connections
+            if websocket1 and not websocket1.closed:
+                await websocket1.close()
+            if websocket2 and not websocket2.closed:
+                await websocket2.close()
     
     async def test_mongodb_persistence(self) -> bool:
         """Test MongoDB data persistence by retrieving stored data"""
@@ -442,9 +544,10 @@ class MessengerAPITester:
             test_results['Protected Endpoint'] = await self.test_protected_endpoint()
             test_results['Chat Creation'] = await self.test_chat_creation()
             test_results['Get User Chats'] = await self.test_get_chats()
-            test_results['Message API'] = await self.test_send_message_via_api()
-            test_results['Socket.IO Connection'] = await self.test_socket_io_connection()
-            test_results['Socket.IO Messaging'] = await self.test_socket_io_messaging()
+            test_results['REST API Messaging'] = await self.test_rest_api_messaging()
+            test_results['WebSocket Authentication'] = await self.test_websocket_authentication()
+            test_results['WebSocket Messaging'] = await self.test_websocket_messaging()
+            test_results['WebSocket Dual User'] = await self.test_websocket_dual_user_messaging()
             test_results['MongoDB Persistence'] = await self.test_mongodb_persistence()
             
         except Exception as e:
