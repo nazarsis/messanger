@@ -304,23 +304,35 @@ class MessengerAPITester:
         """Test Socket.IO connection and real-time messaging"""
         print("\n🔌 Testing Socket.IO Connection...")
         
-        try:
-            # Connect to Socket.IO server
-            await self.sio_client.connect(SOCKET_URL)
-            
-            # Wait a moment for connection to establish
-            await asyncio.sleep(1)
-            
-            if self.sio_client.connected:
-                print("✅ Socket.IO connection established")
-                return True
-            else:
-                print("❌ Socket.IO connection failed")
-                return False
+        # Try multiple Socket.IO URLs
+        urls_to_try = [
+            SOCKET_URL,
+            SOCKET_URL_API,
+            f"{SOCKET_URL}/socket.io",
+            f"{SOCKET_URL_API}/socket.io"
+        ]
+        
+        for url in urls_to_try:
+            try:
+                print(f"   Trying Socket.IO URL: {url}")
+                # Connect to Socket.IO server
+                await self.sio_client.connect(url)
                 
-        except Exception as e:
-            print(f"❌ Socket.IO connection test failed: {e}")
-            return False
+                # Wait a moment for connection to establish
+                await asyncio.sleep(1)
+                
+                if self.sio_client.connected:
+                    print(f"✅ Socket.IO connection established at {url}")
+                    return True
+                else:
+                    print(f"   Connection failed for {url}")
+                    
+            except Exception as e:
+                print(f"   Connection failed for {url}: {e}")
+                continue
+        
+        print("❌ Socket.IO connection failed on all URLs")
+        return False
     
     async def test_socket_io_messaging(self) -> bool:
         """Test real-time messaging via Socket.IO"""
