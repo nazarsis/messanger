@@ -107,9 +107,14 @@ class MessengerAPITester:
         """Test user login endpoint"""
         print("\n🔑 Testing User Login...")
         
+        if not self.test_users:
+            print("❌ No registered users available for login test")
+            return False
+        
+        # Use the first registered user's email for login
         login_data = {
-            "email": "alice@example.com",
-            "password": "securepass123"
+            "email": self.test_users[0]['email'],
+            "password": "securepass123"  # We know this is the password for the first user
         }
         
         try:
