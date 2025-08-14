@@ -248,6 +248,7 @@ async def create_chat(
     
     if existing_chat:
         existing_chat["id"] = str(existing_chat["_id"])
+        del existing_chat["_id"]  # Remove ObjectId field
         return existing_chat
     
     # Create new chat
