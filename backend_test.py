@@ -180,11 +180,15 @@ class MessengerAPITester:
                 "Content-Type": "application/json"
             }
             
-            # Create chat between first and second user
-            participant_id = self.test_users[1]['id']
+            # Create private chat between first and second user
+            chat_data = {
+                "participant_id": self.test_users[1]['id'],
+                "chat_type": "private"
+            }
             
             async with self.session.post(
-                f"{BASE_URL}/chats?participant_id={participant_id}",
+                f"{BASE_URL}/chats",
+                json=chat_data,
                 headers=headers
             ) as response:
                 
