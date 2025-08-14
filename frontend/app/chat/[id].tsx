@@ -136,17 +136,43 @@ export default function ChatScreen() {
 
   const sendMessage = async () => {
     const messageText = newMessage.trim();
-    if (!messageText || !socket || !user) return;
+    if (!messageText) return;
 
     setNewMessage('');
 
-    // Send via socket
-    socket.emit('send_message', {
-      chat_id: chatId,
-      sender_id: user.id,
-      content: messageText,
-      message_type: 'text',
-    });
+    // Send via WebSocket if connected
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'message',
+        content: messageText,
+        message_type: 'text',
+      }));
+    } else {
+      // Fallback to REST API
+      try {
+        const response = await apiRequest(`/chats/${chatId}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content: messageText,
+            message_type: 'text',
+          }),
+        });
+
+        // Add message to local state if using REST fallback
+        setMessages((prev) => [...prev, response]);
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      } catch (error) {
+        console.error('Error sending message:', error);
+        Alert.alert('Error', 'Failed to send message');
+        // Restore the message text on error
+        setNewMessage(messageText);
+      }
+    }
   };
 
   const getChatTitle = () => {
