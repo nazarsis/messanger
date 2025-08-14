@@ -46,7 +46,7 @@ export default function ChatScreen() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [chat, setChat] = useState<Chat | null>(null);
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [ws, setWs] = useState<WebSocket | null>(null);
   const router = useRouter();
   const { user } = useAuth();
   const flatListRef = useRef<FlatList>(null);
@@ -58,47 +58,55 @@ export default function ChatScreen() {
 
     loadChat();
     loadMessages();
-    initializeSocket();
+    initializeWebSocket();
 
     return () => {
-      if (socket) {
-        socket.disconnect();
+      if (ws) {
+        ws.close();
       }
     };
   }, [chatId]);
 
-  const initializeSocket = () => {
-    const socketInstance = io(BACKEND_URL!, {
-      transports: ['websocket', 'polling'],
-    });
+  const initializeWebSocket = async () => {
+    try {
+      const token = await AsyncStorage.getItem('access_token');
+      if (!token || !user) return;
 
-    socketInstance.on('connect', () => {
-      console.log('Connected to socket server');
-      // Join the chat room
-      socketInstance.emit('join_chat', {
-        chat_id: chatId,
-        user_id: user?.id,
-      });
-    });
+      // Create WebSocket URL
+      const wsUrl = `${BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://')}/ws/chat/${chatId}?token=${token}`;
+      
+      const websocket = new WebSocket(wsUrl);
 
-    socketInstance.on('new_message', (message: Message) => {
-      console.log('New message received:', message);
-      setMessages((prev) => [...prev, message]);
-      // Scroll to bottom after adding new message
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    });
+      websocket.onopen = () => {
+        console.log('WebSocket connected');
+        setWs(websocket);
+      };
 
-    socketInstance.on('error', (error) => {
-      console.error('Socket error:', error);
-    });
+      websocket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log('WebSocket message received:', data);
+        
+        if (data.type === 'new_message') {
+          setMessages((prev) => [...prev, data.message]);
+          // Scroll to bottom after adding new message
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        }
+      };
 
-    socketInstance.on('disconnect', () => {
-      console.log('Disconnected from socket server');
-    });
+      websocket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
 
-    setSocket(socketInstance);
+      websocket.onclose = () => {
+        console.log('WebSocket disconnected');
+        setWs(null);
+      };
+
+    } catch (error) {
+      console.error('WebSocket initialization error:', error);
+    }
   };
 
   const loadChat = async () => {
