@@ -62,6 +62,12 @@ class MessengerAPITester:
                 "email": f"bob_{int(datetime.now().timestamp())}@example.com", 
                 "password": "mypassword456",
                 "display_name": "Bob Smith"
+            },
+            {
+                "nickname": f"charlie_test_{int(datetime.now().timestamp())}",
+                "email": f"charlie_{int(datetime.now().timestamp())}@example.com", 
+                "password": "charliepass789",
+                "display_name": "Charlie Brown"
             }
         ]
         
