@@ -23,10 +23,8 @@ services:
     environment:
       - MONGO_URL=mongodb://mongodb:27017
       - DB_NAME=messenger_db
-      - JWT_SECRET=your-production-secret-key-change-this
+      - JWT_SECRET=super-secret-production-key-change-this-in-production
       - ENVIRONMENT=production
-    volumes:
-      - ./backend:/app
 
   frontend:
     build:
@@ -39,7 +37,6 @@ services:
       - backend
     environment:
       - EXPO_PUBLIC_BACKEND_URL=http://localhost:8001
-      - EXPO_PUBLIC_ENV=production
 
 volumes:
   mongodb_data:
