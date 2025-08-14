@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import socketio as sio_module
+import socketio
 import os
 import logging
 from pathlib import Path
@@ -29,7 +29,7 @@ JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DELTA = timedelta(days=30)
 
 # Socket.IO server
-sio = sio_module.AsyncServer(
+sio = socketio.AsyncServer(
     cors_allowed_origins="*",
     logger=True,
     engineio_logger=True
@@ -359,7 +359,7 @@ async def send_message(sid, data):
         await sio.emit('error', {'message': 'Failed to send message'}, room=sid)
 
 # Mount Socket.IO app
-socket_app = sio_module.ASGIApp(sio, app)
+socket_app = socketio.ASGIApp(sio, app)
 
 # Include API router
 app.include_router(api_router)
