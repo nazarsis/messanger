@@ -420,11 +420,11 @@ class MessengerAPITester:
             ws_url2 = f"{WS_BASE_URL}/ws/chat/{chat_id}?token={token2}"
             
             print("   Connecting User 1 to WebSocket...")
-            websocket1 = await websockets.connect(ws_url1, timeout=10)
+            websocket1 = await websockets.connect(ws_url1)
             self.websocket_connections.append(websocket1)
             
             print("   Connecting User 2 to WebSocket...")
-            websocket2 = await websockets.connect(ws_url2, timeout=10)
+            websocket2 = await websockets.connect(ws_url2)
             self.websocket_connections.append(websocket2)
             
             print("✅ Both users connected to WebSocket")
