@@ -256,8 +256,8 @@ async def create_chat(
         "participants": [current_user.id, participant_id],
         "chat_type": "private",
         "created_by": current_user.id,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat()
     }
     
     result = await db.chats.insert_one(chat_doc)
