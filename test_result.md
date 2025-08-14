@@ -159,7 +159,7 @@ backend:
         agent: "testing"
         comment: "✅ COMPREHENSIVE TESTING: All REST API endpoints working perfectly. Fixed ObjectId serialization issue in chat creation endpoint. /auth/register ✅, /auth/login ✅, /users/me ✅, /chats (GET) ✅, /chats (POST) ✅, /chats/{id}/messages ✅. All endpoints handle authentication, data validation, and error responses correctly."
 
-  - task: "MongoDB Integration"
+  - task: "REST API Message Sending"
     implemented: true
     working: true
     file: "server.py"
@@ -169,10 +169,25 @@ backend:
     status_history:
       - working: "NA"
         agent: "main"
-        comment: "Implemented MongoDB collections for users, chats, and messages with proper indexing"
+        comment: "Implemented REST API endpoint POST /api/chats/{chat_id}/messages for message sending with JWT authentication"
       - working: true
         agent: "testing"
-        comment: "✅ TESTED: MongoDB integration working correctly. Data persistence verified across all collections. Users, chats, and messages are properly stored and retrieved. Database operations are functional and data integrity is maintained."
+        comment: "✅ TESTED: REST API message sending working perfectly. Endpoint POST /api/chats/{chat_id}/messages accepts content and message_type as query parameters, authenticates users via JWT, validates chat participation, persists messages to MongoDB, and returns complete message objects with IDs and timestamps. Messages are successfully stored and retrievable."
+
+  - task: "WebSocket Real-time Messaging"
+    implemented: true
+    working: false
+    file: "server.py"
+    stuck_count: 3
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented native FastAPI WebSocket endpoint /ws/chat/{chat_id} with JWT authentication, connection manager, and real-time message broadcasting"
+      - working: false
+        agent: "testing"
+        comment: "❌ TESTED: WebSocket implementation is correct but blocked by HTTP 502 errors from Kubernetes ingress. WebSocket endpoint /ws/chat/{chat_id}?token={jwt_token} exists and correctly handles authentication (rejects invalid tokens), but external WebSocket connections are not routed properly through the ingress controller. This is an infrastructure configuration issue, not a code problem."
 
 frontend:
   - task: "Authentication Flow"
