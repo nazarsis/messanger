@@ -378,9 +378,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Socket.IO app at /socket.io path
+# Mount Socket.IO app at /api/socket.io path to match ingress routing
 socket_asgi = socketio.ASGIApp(sio)
-app.mount("/socket.io", socket_asgi)
+app.mount("/api/socket.io", socket_asgi)
 
 # Also create the wrapped app for uvicorn
 socket_app = socketio.ASGIApp(sio, app)
