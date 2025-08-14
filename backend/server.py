@@ -210,6 +210,7 @@ async def get_user_chats(current_user: User = Depends(get_current_user)):
     result = []
     for chat in chats:
         chat["id"] = str(chat["_id"])
+        del chat["_id"]  # Remove the ObjectId field
         
         # Get other participants info
         other_participants = [p for p in chat["participants"] if p != current_user.id]
@@ -220,6 +221,7 @@ async def get_user_chats(current_user: User = Depends(get_current_user)):
             
             for p in participants_info:
                 p["id"] = str(p["_id"])
+                del p["_id"]  # Remove the ObjectId field
                 del p["password"]  # Remove password from response
             
             chat["participants_info"] = participants_info
