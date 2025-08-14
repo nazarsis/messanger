@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, WebSocket, WebSocketDisconnect, File, UploadFile
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -15,6 +15,7 @@ import jwt
 import bcrypt
 from bson import ObjectId
 import json
+import base64
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -69,14 +70,16 @@ sio = socketio.AsyncServer(
     engineio_logger=True
 )
 
-# Create the main app
-app = FastAPI(title="Messenger API", version="1.0.0")
+# Create the main app without a prefix
+app = FastAPI()
+
+# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
 # Security
 security = HTTPBearer()
 
-# Models
+# Enhanced Models
 class UserCreate(BaseModel):
     nickname: str = Field(..., min_length=3, max_length=30)
     email: EmailStr
@@ -99,27 +102,51 @@ class User(BaseModel):
     status: str = "online"
     last_seen: datetime = Field(default_factory=datetime.utcnow)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    is_online: bool = True
+
+class MessageCreate(BaseModel):
+    content: str = Field(..., max_length=1000)
+    message_type: str = "text"  # text, image, file, voice
+    reply_to: Optional[str] = None
 
 class Message(BaseModel):
     id: str
     chat_id: str
     sender_id: str
     content: str
-    message_type: str = "text"  # text, image, file, etc.
+    message_type: str = "text"  # text, image, file, voice, system
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     status: str = "sent"  # sent, delivered, read
     reply_to: Optional[str] = None
+    file_data: Optional[str] = None  # base64 encoded file data
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
+
+class ChatCreate(BaseModel):
+    participant_id: Optional[str] = None
+    participants: Optional[List[str]] = None
+    chat_type: str = "private"  # private, group, channel
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 class Chat(BaseModel):
     id: str
     participants: List[str]
     chat_type: str = "private"  # private, group, channel
     name: Optional[str] = None
+    description: Optional[str] = None
     avatar: Optional[str] = None
     created_by: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_message: Optional[Dict[str, Any]] = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    unread_count: Optional[Dict[str, int]] = None
+
+class GroupSettings(BaseModel):
+    chat_id: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    avatar: Optional[str] = None
 
 # Helper Functions
 def hash_password(password: str) -> str:
@@ -180,6 +207,7 @@ async def register(user_data: UserCreate):
         "avatar": None,
         "bio": "",
         "status": "online",
+        "is_online": True,
         "last_seen": datetime.utcnow(),
         "created_at": datetime.utcnow()
     }
@@ -214,10 +242,10 @@ async def login(login_data: UserLogin):
     user_id = str(user["_id"])
     access_token = create_access_token({"sub": user_id})
     
-    # Update last seen
+    # Update last seen and online status
     await db.users.update_one(
         {"_id": ObjectId(user_id)},
-        {"$set": {"last_seen": datetime.utcnow(), "status": "online"}}
+        {"$set": {"last_seen": datetime.utcnow(), "status": "online", "is_online": True}}
     )
     
     return {
@@ -234,6 +262,33 @@ async def login(login_data: UserLogin):
 @api_router.get("/users/me")
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     return current_user
+
+@api_router.get("/users/search")
+async def search_users(q: str, current_user: User = Depends(get_current_user)):
+    """Search users by nickname or display name"""
+    if len(q) < 2:
+        return []
+    
+    users = await db.users.find({
+        "$and": [
+            {"_id": {"$ne": ObjectId(current_user.id)}},
+            {
+                "$or": [
+                    {"nickname": {"$regex": q, "$options": "i"}},
+                    {"display_name": {"$regex": q, "$options": "i"}}
+                ]
+            }
+        ]
+    }).limit(20).to_list(20)
+    
+    result = []
+    for user in users:
+        user["id"] = str(user["_id"])
+        del user["_id"]
+        del user["password"]
+        result.append(user)
+    
+    return result
 
 @api_router.get("/chats")
 async def get_user_chats(current_user: User = Depends(get_current_user)):
@@ -260,39 +315,76 @@ async def get_user_chats(current_user: User = Depends(get_current_user)):
             
             chat["participants_info"] = participants_info
         
+        # Calculate unread message count for current user
+        unread_count = await db.messages.count_documents({
+            "chat_id": chat["id"],
+            "sender_id": {"$ne": current_user.id},
+            "status": {"$ne": "read"}
+        })
+        chat["unread_count"] = unread_count
+        
         result.append(chat)
     
     return result
 
 @api_router.post("/chats")
 async def create_chat(
-    participant_id: str,
+    chat_data: ChatCreate,
     current_user: User = Depends(get_current_user)
 ):
-    # Check if participant exists
-    participant = await db.users.find_one({"_id": ObjectId(participant_id)})
-    if not participant:
-        raise HTTPException(status_code=404, detail="User not found")
+    if chat_data.chat_type == "private":
+        if not chat_data.participant_id:
+            raise HTTPException(status_code=400, detail="participant_id required for private chat")
+        
+        # Check if participant exists
+        participant = await db.users.find_one({"_id": ObjectId(chat_data.participant_id)})
+        if not participant:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Check if chat already exists
+        existing_chat = await db.chats.find_one({
+            "participants": {"$all": [current_user.id, chat_data.participant_id]},
+            "chat_type": "private"
+        })
+        
+        if existing_chat:
+            existing_chat["id"] = str(existing_chat["_id"])
+            del existing_chat["_id"]  # Remove ObjectId field
+            return existing_chat
+        
+        # Create new private chat
+        chat_doc = {
+            "participants": [current_user.id, chat_data.participant_id],
+            "chat_type": "private",
+            "created_by": current_user.id,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
     
-    # Check if chat already exists
-    existing_chat = await db.chats.find_one({
-        "participants": {"$all": [current_user.id, participant_id]},
-        "chat_type": "private"
-    })
+    elif chat_data.chat_type == "group":
+        if not chat_data.participants or not chat_data.name:
+            raise HTTPException(status_code=400, detail="participants and name required for group chat")
+        
+        # Validate all participants exist
+        participant_ids = [ObjectId(p) for p in chat_data.participants if p != current_user.id]
+        participants_count = await db.users.count_documents({"_id": {"$in": participant_ids}})
+        
+        if participants_count != len(participant_ids):
+            raise HTTPException(status_code=400, detail="One or more participants not found")
+        
+        # Create new group chat
+        chat_doc = {
+            "participants": [current_user.id] + chat_data.participants,
+            "chat_type": "group",
+            "name": chat_data.name,
+            "description": chat_data.description,
+            "created_by": current_user.id,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
     
-    if existing_chat:
-        existing_chat["id"] = str(existing_chat["_id"])
-        del existing_chat["_id"]  # Remove ObjectId field
-        return existing_chat
-    
-    # Create new chat
-    chat_doc = {
-        "participants": [current_user.id, participant_id],
-        "chat_type": "private",
-        "created_by": current_user.id,
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat()
-    }
+    else:
+        raise HTTPException(status_code=400, detail="Invalid chat type")
     
     result = await db.chats.insert_one(chat_doc)
     chat_doc["id"] = str(result.inserted_id)
@@ -328,6 +420,198 @@ async def get_chat_messages(
         del message["_id"]  # Remove ObjectId field
     
     return list(reversed(messages))  # Return in chronological order
+
+@api_router.post("/chats/{chat_id}/messages")
+async def send_message_rest(
+    chat_id: str,
+    message_data: MessageCreate,
+    current_user: User = Depends(get_current_user)
+):
+    # Verify user is participant in chat
+    chat = await db.chats.find_one({
+        "_id": ObjectId(chat_id),
+        "participants": current_user.id
+    })
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    # Create message
+    message_doc = {
+        "chat_id": chat_id,
+        "sender_id": current_user.id,
+        "content": message_data.content,
+        "message_type": message_data.message_type,
+        "timestamp": datetime.utcnow(),
+        "status": "sent",
+        "reply_to": message_data.reply_to
+    }
+    
+    result = await db.messages.insert_one(message_doc)
+    message_doc["id"] = str(result.inserted_id)
+    del message_doc["_id"]
+    
+    # Update chat's last message
+    await db.chats.update_one(
+        {"_id": ObjectId(chat_id)},
+        {
+            "$set": {
+                "last_message": {
+                    "content": message_data.content,
+                    "sender_id": current_user.id,
+                    "timestamp": message_doc["timestamp"]
+                },
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    # Broadcast to WebSocket connections if any
+    await manager.broadcast_to_chat(
+        json.dumps({
+            "type": "new_message",
+            "message": {
+                **message_doc,
+                "timestamp": message_doc["timestamp"].isoformat()
+            }
+        }),
+        chat_id
+    )
+    
+    return message_doc
+
+@api_router.post("/chats/{chat_id}/messages/{message_id}/read")
+async def mark_message_read(
+    chat_id: str,
+    message_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Mark a message as read"""
+    # Verify user is participant in chat
+    chat = await db.chats.find_one({
+        "_id": ObjectId(chat_id),
+        "participants": current_user.id
+    })
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    # Update message status
+    result = await db.messages.update_one(
+        {
+            "_id": ObjectId(message_id),
+            "chat_id": chat_id,
+            "sender_id": {"$ne": current_user.id}  # Don't mark own messages as read
+        },
+        {"$set": {"status": "read"}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Message not found or already read")
+    
+    return {"status": "success", "message": "Message marked as read"}
+
+@api_router.post("/chats/{chat_id}/upload")
+async def upload_file(
+    chat_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Upload file to chat (stored as base64)"""
+    # Verify user is participant in chat
+    chat = await db.chats.find_one({
+        "_id": ObjectId(chat_id),
+        "participants": current_user.id
+    })
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    # Check file size (limit to 10MB)
+    if file.size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+    
+    # Read file and encode as base64
+    file_content = await file.read()
+    file_base64 = base64.b64encode(file_content).decode('utf-8')
+    
+    # Determine message type based on file
+    message_type = "file"
+    if file.content_type and file.content_type.startswith('image/'):
+        message_type = "image"
+    elif file.content_type and file.content_type.startswith('audio/'):
+        message_type = "voice"
+    
+    # Create message with file
+    message_doc = {
+        "chat_id": chat_id,
+        "sender_id": current_user.id,
+        "content": file.filename or "File",
+        "message_type": message_type,
+        "timestamp": datetime.utcnow(),
+        "status": "sent",
+        "file_data": file_base64,
+        "file_name": file.filename,
+        "file_size": file.size
+    }
+    
+    result = await db.messages.insert_one(message_doc)
+    message_doc["id"] = str(result.inserted_id)
+    del message_doc["_id"]
+    
+    # Update chat's last message
+    await db.chats.update_one(
+        {"_id": ObjectId(chat_id)},
+        {
+            "$set": {
+                "last_message": {
+                    "content": f"📎 {file.filename}",
+                    "sender_id": current_user.id,
+                    "timestamp": message_doc["timestamp"]
+                },
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return message_doc
+
+@api_router.put("/chats/{chat_id}/settings")
+async def update_group_settings(
+    chat_id: str,
+    settings: GroupSettings,
+    current_user: User = Depends(get_current_user)
+):
+    """Update group chat settings (name, description, avatar)"""
+    # Verify user is participant and chat is a group
+    chat = await db.chats.find_one({
+        "_id": ObjectId(chat_id),
+        "participants": current_user.id,
+        "chat_type": "group"
+    })
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Group chat not found")
+    
+    # Check if user is admin (creator or has admin permissions)
+    if chat["created_by"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Only group admin can modify settings")
+    
+    # Update group settings
+    update_data = {"updated_at": datetime.utcnow()}
+    if settings.name:
+        update_data["name"] = settings.name
+    if settings.description is not None:
+        update_data["description"] = settings.description
+    if settings.avatar:
+        update_data["avatar"] = settings.avatar
+    
+    await db.chats.update_one(
+        {"_id": ObjectId(chat_id)},
+        {"$set": update_data}
+    )
+    
+    return {"status": "success", "message": "Group settings updated"}
 
 # WebSocket endpoint for real-time messaging
 @app.websocket("/ws/chat/{chat_id}")
@@ -420,55 +704,7 @@ async def websocket_endpoint(websocket: WebSocket, chat_id: str, token: str = No
         print(f"WebSocket error: {e}")
         await websocket.close(code=4000)
 
-# REST endpoint to send messages (alternative to WebSocket)
-@api_router.post("/chats/{chat_id}/messages")
-async def send_message_rest(
-    chat_id: str,
-    content: str,
-    message_type: str = "text",
-    current_user: User = Depends(get_current_user)
-):
-    # Verify user is participant in chat
-    chat = await db.chats.find_one({
-        "_id": ObjectId(chat_id),
-        "participants": current_user.id
-    })
-    
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    
-    # Create message
-    message_doc = {
-        "chat_id": chat_id,
-        "sender_id": current_user.id,
-        "content": content,
-        "message_type": message_type,
-        "timestamp": datetime.utcnow(),
-        "status": "sent"
-    }
-    
-    result = await db.messages.insert_one(message_doc)
-    message_doc["id"] = str(result.inserted_id)
-    del message_doc["_id"]
-    
-    # Update chat's last message
-    await db.chats.update_one(
-        {"_id": ObjectId(chat_id)},
-        {
-            "$set": {
-                "last_message": {
-                    "content": content,
-                    "sender_id": current_user.id,
-                    "timestamp": message_doc["timestamp"]
-                },
-                "updated_at": datetime.utcnow()
-            }
-        }
-    )
-    
-    return message_doc
-
-# Socket.IO Events
+# Socket.IO Events (keeping for compatibility)
 @sio.event
 async def connect(sid, environ):
     print(f"Client {sid} connected")
