@@ -271,8 +271,7 @@ class MessengerAPITester:
             }
             
             async with self.session.post(
-                f"{BASE_URL}/chats/{chat_id}/messages",
-                json=message_data,
+                f"{BASE_URL}/chats/{chat_id}/messages?content={message_data['content']}&message_type={message_data['message_type']}",
                 headers=headers
             ) as response:
                 
