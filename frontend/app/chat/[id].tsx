@@ -154,38 +154,133 @@ export default function ChatScreen() {
 
     setNewMessage('');
 
-    // Send via WebSocket if connected
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'message',
-        content: messageText,
-        message_type: 'text',
-      }));
-    } else {
-      // Fallback to REST API
+    try {
+      const response = await apiRequest(`/chats/${chatId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: messageText,
+          message_type: 'text',
+        }),
+      });
+
+      // Add message to local state
+      setMessages((prev) => [...prev, response]);
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message');
+      // Restore the message text on error
+      setNewMessage(messageText);
+    }
+  };
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission denied', 'We need camera roll permissions to share images.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setUploading(true);
       try {
+        const asset = result.assets[0];
+        const base64Data = asset.base64!;
+        
         const response = await apiRequest(`/chats/${chatId}/messages`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            content: messageText,
-            message_type: 'text',
+            content: asset.fileName || 'Image',
+            message_type: 'image',
+            file_data: base64Data,
+            file_name: asset.fileName,
+            file_size: asset.fileSize,
           }),
         });
 
-        // Add message to local state if using REST fallback
         setMessages((prev) => [...prev, response]);
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }, 100);
       } catch (error) {
-        console.error('Error sending message:', error);
-        Alert.alert('Error', 'Failed to send message');
-        // Restore the message text on error
-        setNewMessage(messageText);
+        console.error('Error uploading image:', error);
+        Alert.alert('Error', 'Failed to send image');
+      } finally {
+        setUploading(false);
+        setShowAttachmentOptions(false);
       }
+    }
+  };
+
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setUploading(true);
+        const asset = result.assets[0];
+
+        // Read file as base64
+        const response = await fetch(asset.uri);
+        const blob = await response.blob();
+        const reader = new FileReader();
+        
+        reader.onload = async () => {
+          try {
+            const base64Data = (reader.result as string).split(',')[1];
+            
+            const messageResponse = await apiRequest(`/chats/${chatId}/messages`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                content: asset.name,
+                message_type: 'file',
+                file_data: base64Data,
+                file_name: asset.name,
+                file_size: asset.size,
+              }),
+            });
+
+            setMessages((prev) => [...prev, messageResponse]);
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }, 100);
+          } catch (error) {
+            console.error('Error uploading document:', error);
+            Alert.alert('Error', 'Failed to send document');
+          } finally {
+            setUploading(false);
+            setShowAttachmentOptions(false);
+          }
+        };
+        
+        reader.readAsDataURL(blob);
+      }
+    } catch (error) {
+      console.error('Error picking document:', error);
+      Alert.alert('Error', 'Failed to pick document');
+      setUploading(false);
+      setShowAttachmentOptions(false);
     }
   };
 
