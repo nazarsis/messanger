@@ -378,8 +378,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create the wrapped app for uvicorn - Socket.IO wraps the entire app
-socket_app = socketio.ASGIApp(sio, app)
+# Mount Socket.IO as a sub-application at /socket.io path
+sio_app = socketio.ASGIApp(sio)
+app.mount('/socket.io', sio_app)
 
 # Configure logging
 logging.basicConfig(
