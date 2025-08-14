@@ -5,13 +5,13 @@ WORKDIR /app
 # Встановлення Expo CLI
 RUN npm install -g @expo/cli
 
-# Копіювання package.json та yarn.lock
-COPY package.json yarn.lock ./
+# Копіювання package.json спочатку
+COPY package.json ./
 
-# Встановлення залежностей
-RUN yarn install --frozen-lockfile
+# Встановлення залежностей (без frozen lockfile для першого разу)
+RUN yarn install
 
-# Копіювання коду додатку
+# Копіювання всього коду
 COPY . .
 
 # Відкриття порту
