@@ -61,15 +61,15 @@ class MessengerAPITester:
         
         test_users_data = [
             {
-                "nickname": "alice_messenger",
-                "email": "alice@example.com",
+                "nickname": f"alice_test_{int(datetime.now().timestamp())}",
+                "email": f"alice_{int(datetime.now().timestamp())}@example.com",
                 "password": "securepass123",
                 "display_name": "Alice Johnson",
                 "phone": "+1234567890"
             },
             {
-                "nickname": "bob_chat",
-                "email": "bob@example.com", 
+                "nickname": f"bob_test_{int(datetime.now().timestamp())}",
+                "email": f"bob_{int(datetime.now().timestamp())}@example.com", 
                 "password": "mypassword456",
                 "display_name": "Bob Smith"
             }
