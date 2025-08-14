@@ -362,9 +362,6 @@ async def send_message(sid, data):
         print(f"Error sending message: {e}")
         await sio.emit('error', {'message': 'Failed to send message'}, room=sid)
 
-# Mount Socket.IO app
-socket_app = socketio.ASGIApp(sio, app)
-
 # Include API router
 app.include_router(api_router)
 
@@ -376,6 +373,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount Socket.IO app - this should be the final step
+socket_app = socketio.ASGIApp(sio, app)
 
 # Configure logging
 logging.basicConfig(
