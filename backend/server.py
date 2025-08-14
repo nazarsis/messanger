@@ -329,6 +329,145 @@ async def get_chat_messages(
     
     return list(reversed(messages))  # Return in chronological order
 
+# WebSocket endpoint for real-time messaging
+@app.websocket("/ws/chat/{chat_id}")
+async def websocket_endpoint(websocket: WebSocket, chat_id: str, token: str = None):
+    # Verify user authentication
+    if not token:
+        await websocket.close(code=4001)
+        return
+    
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            await websocket.close(code=4001)
+            return
+        
+        # Verify user is participant in chat
+        chat = await db.chats.find_one({
+            "_id": ObjectId(chat_id),
+            "participants": user_id
+        })
+        
+        if not chat:
+            await websocket.close(code=4004)
+            return
+        
+        # Connect to chat
+        await manager.connect(websocket, chat_id, user_id)
+        
+        # Send connection confirmation
+        await manager.send_personal_message(
+            json.dumps({"type": "connected", "chat_id": chat_id}),
+            websocket
+        )
+        
+        try:
+            while True:
+                # Receive message from client
+                data = await websocket.receive_text()
+                message_data = json.loads(data)
+                
+                if message_data.get("type") == "message":
+                    # Create message in database
+                    message_doc = {
+                        "chat_id": chat_id,
+                        "sender_id": user_id,
+                        "content": message_data.get("content", ""),
+                        "message_type": message_data.get("message_type", "text"),
+                        "timestamp": datetime.utcnow(),
+                        "status": "sent"
+                    }
+                    
+                    result = await db.messages.insert_one(message_doc)
+                    message_doc["id"] = str(result.inserted_id)
+                    message_doc["timestamp"] = message_doc["timestamp"].isoformat()
+                    del message_doc["_id"]
+                    
+                    # Update chat's last message
+                    await db.chats.update_one(
+                        {"_id": ObjectId(chat_id)},
+                        {
+                            "$set": {
+                                "last_message": {
+                                    "content": message_doc["content"],
+                                    "sender_id": user_id,
+                                    "timestamp": message_doc["timestamp"]
+                                },
+                                "updated_at": datetime.utcnow()
+                            }
+                        }
+                    )
+                    
+                    # Broadcast message to all chat participants
+                    await manager.broadcast_to_chat(
+                        json.dumps({
+                            "type": "new_message",
+                            "message": message_doc
+                        }),
+                        chat_id
+                    )
+                    
+        except WebSocketDisconnect:
+            manager.disconnect(websocket, chat_id, user_id)
+            
+    except jwt.ExpiredSignatureError:
+        await websocket.close(code=4001)
+    except jwt.JWTError:
+        await websocket.close(code=4001)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        await websocket.close(code=4000)
+
+# REST endpoint to send messages (alternative to WebSocket)
+@api_router.post("/chats/{chat_id}/messages")
+async def send_message_rest(
+    chat_id: str,
+    content: str,
+    message_type: str = "text",
+    current_user: User = Depends(get_current_user)
+):
+    # Verify user is participant in chat
+    chat = await db.chats.find_one({
+        "_id": ObjectId(chat_id),
+        "participants": current_user.id
+    })
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    # Create message
+    message_doc = {
+        "chat_id": chat_id,
+        "sender_id": current_user.id,
+        "content": content,
+        "message_type": message_type,
+        "timestamp": datetime.utcnow(),
+        "status": "sent"
+    }
+    
+    result = await db.messages.insert_one(message_doc)
+    message_doc["id"] = str(result.inserted_id)
+    del message_doc["_id"]
+    
+    # Update chat's last message
+    await db.chats.update_one(
+        {"_id": ObjectId(chat_id)},
+        {
+            "$set": {
+                "last_message": {
+                    "content": content,
+                    "sender_id": current_user.id,
+                    "timestamp": message_doc["timestamp"]
+                },
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return message_doc
+
 # Socket.IO Events
 @sio.event
 async def connect(sid, environ):
