@@ -29,6 +29,39 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production'
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DELTA = timedelta(days=30)
 
+# WebSocket Connection Manager
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+        self.user_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, chat_id: str, user_id: str):
+        await websocket.accept()
+        if chat_id not in self.active_connections:
+            self.active_connections[chat_id] = []
+        self.active_connections[chat_id].append(websocket)
+        self.user_connections[user_id] = websocket
+
+    def disconnect(self, websocket: WebSocket, chat_id: str, user_id: str):
+        if chat_id in self.active_connections:
+            self.active_connections[chat_id].remove(websocket)
+        if user_id in self.user_connections:
+            del self.user_connections[user_id]
+
+    async def send_personal_message(self, message: str, websocket: WebSocket):
+        await websocket.send_text(message)
+
+    async def broadcast_to_chat(self, message: str, chat_id: str):
+        if chat_id in self.active_connections:
+            for connection in self.active_connections[chat_id]:
+                try:
+                    await connection.send_text(message)
+                except:
+                    # Remove dead connections
+                    self.active_connections[chat_id].remove(connection)
+
+manager = ConnectionManager()
+
 # Socket.IO server
 sio = socketio.AsyncServer(
     cors_allowed_origins="*",
